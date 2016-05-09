@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>&lt;dgrt&gt; Swarm Simulation</title>
+    <!-- styles -->
+    <link rel="stylesheet" type="text/css" href="css/body.css">
+  </head>
+  <body>
+    <!-- third party libs, custom srcs & conf import (electron style) -->
+    <script>
+      // 3rd party libs
+      const _ = require('./js/underscore-min.js');
+      const PIXI = require('./js/pixi.min.js');
+      const THREE = require('./js/three.min.js');
+      const tinycolor = require('./js/tinycolor.js');
+
+      // vutil
+      const getIndexFromCoords = require('./src/vutil.js').getIndexFromCoords;
+      const getCoordsFromIndex = require('./src/vutil.js').getCoordsFromIndex;
+      const makeRelative = require('./src/vutil.js').makeRelative;
+      const makeAbsolute = require('./src/vutil.js').makeAbsolute;
+
+      // mutil
+      const DEG2RAD = require('./src/mutil.js').DEG2RAD;
+      const RAD2DEG = require('./src/mutil.js').RAD2DEG;
+      const PI2 = require('./src/mutil.js').PI2;
+      const randomFloat = require('./src/mutil.js').randomFloat;
+      const randomInt = require('./src/mutil.js').randomInt;
+      const clamp = require('./src/mutil.js').clamp;
+      const wrap = require('./src/mutil.js').wrap;
+
+      // itutil
+      const getImageData = require('./src/iutil.js').getImageData;
+      const loadImageData = require('./src/iutil.js').loadImageData; // PIXI
+      const getAlphaMap = require('./src/iutil.js').getAlphaMap;
+
+      // dtutil
+      const filterMap = require('./src/dutil.js').filterMap;
+
+      // conf
+      const conf = {
+        pixi: require('./conf/pixi.json'),
+        three: require('./conf/three.json'),
+        particles: require('./conf/particles.json'),
+        projection: require('./conf/projection.json')
+      }
+    </script>
+    <!-- main -->
+    <script>
+      /* <dgrt> Particle Simulation */
+
+      /* env ******************************************************************/
+      const WIDTH = window.innerWidth;
+      const HEIGHT = window.innerHeight;
+      const ASPECT_RATIO = WIDTH/HEIGHT;
+
+      /* Loader ***************************************************************/
+
+      /*
+        Async Loading Helper. Initialization invoked after all resources are
+        loaded.
+      */
+      var loadComplete = _.after(2, init)
+
+      /* Particle Simulation **************************************************/
+
+      // PIXI Blend Modes used by this app
+      const BLEND_MODES = [
+        PIXI.BLEND_MODES.NORMAL,
+        PIXI.BLEND_MODES.ADD,
+        PIXI.BLEND_MODES.MULTIPLY,
+        PIXI.BLEND_MODES.SCREEN,
+        PIXI.BLEND_MODES.OVERLAY,
+        PIXI.BLEND_MODES.DIFFERENCE,
+      ]
+
+      // Particle Simulation Model
+      let particles = [];
+      let spawnPoints = [];
+      let map;
+      let mapWidth;
+
+      // Load Map
+      loadImageData(conf.particles.map, (imageData, w, h)=>{
+        map = getAlphaMap(imageData);
+        mapWidth = w;
+        spawnPoints = filterMap(
+          map,
+          (value)=>{return !!value},
+          (value, index)=>{
+            return makeRelative(getCoordsFromIndex(index, w), {x:w, y:h})
+          }
+        );
+        spawn();
+        loadComplete();
+      });
+
+      /* Simple Bitmap based collision detection */
+      function detectCollision(x, y, map, mapWidth){
+        return !map[
+          getIndexFromCoords(
+            Math.round(x*mapWidth),
+            Math.round(y*mapWidth),
+            mapWidth
+          )
+        ];
+      }
+
+      /* Particle Pseudo Class constructor */
+      function Particle(opts){
+        // Make new keyword optional
+        if(!(this instanceof Particle)) return new Particle(opts);
+        // set default values and overwrite with given opts
+        var t = _.extend(
+          this,
+          {
+            x: .0,
+            y: .0,
+            speed: .0, // speed per msec in proportional uniform unit
+            speedLimit: .0001,
+            acceleration: .0,
+            accelerationLimit: .00001,
+            theta: .0,
+            angularVelocity: .0, // rotation speed per msec in rad
+            angularVelocityLimit: .001,
+            color: 0x000000,
+            size: 128
+          },
+          opts
+        )
+        // return instance
+        return t;
+      }
+      // Prototype Inheritance
+      _.extend(
+        Particle.prototype,
+        {
+          /* update individual particle position */
+          update(delta){
+            var t = this;
+            // rotation of direction vector
+            t.angularVelocity = randomFloat(-1)*t.angularVelocityLimit;
+            t.angularVelocity = clamp(
+              t.angularVelocity,
+              -t.angularVelocityLimit,
+              t.angularVelocityLimit
+            );
+            t.theta += t.angularVelocity*delta;
+            t.theta = wrap(t.theta, -Math.PI, Math.PI);
+            // particle speed
+            t.acceleration = randomFloat(-1)*t.accelerationLimit;
+            t.acceleration = clamp(
+              t.acceleration,
+              -t.accelerationLimit,
+              t.accelerationLimit
+            );
+            t.speed += t.acceleration;
+            t.speed = clamp(t.speed, 0, t.speedLimit);
+            // compute next position
+            var x = t.x + Math.cos(t.theta) * t.speed*delta;
+            var y = t.y + Math.sin(t.theta) * t.speed*delta;
+            if(detectCollision(x, y, map, mapWidth)){
+              // reflect on collison with map bounds
+              t.speed *= .9;
+              t.theta += Math.PI;
+            }else{
+              t.x = x;
+              t.y = y;
+            }
+          }
+        }
+      )
+
+      /* Spawn Particles */
+      function spawn(){
+        var rPos, color, size
+        while(particles.length < conf.particles.count){
+          var rPos = _.sample(spawnPoints); // random spawn point
+          var color = randomInt(0xFFFFFF);
+          var size = conf.particles.sizeMin +
+            randomInt(conf.particles.sizeMax - conf.particles.sizeMin);
+          // draw particle using an temporary PIXI graphics object
+          var g = new PIXI.Graphics();
+          g.beginFill(color);
+          g.drawCircle(size/2, size/2, size)
+          g.endFill()
+          // Cache Graphics as Sprite Texture
+          var sprite = new PIXI.Sprite(
+            g.generateTexture(size,PIXI.SCALE_MODES.DEFAULT)
+          )
+          sprite.width = sprite.height = size;
+          sprite.blendMode = _.sample(BLEND_MODES); // pick random blend mode
+          sprite.alpha = randomFloat(
+            conf.particles.alphaMin,
+            conf.particles.alphaMax
+          )
+          particles.push(
+           new Particle(
+             {
+               x: rPos.x,
+               y: rPos.y,
+               theta: randomFloat(-1) * Math.PI,
+               speed: randomFloat() * conf.particles.speedLimit,
+               speedLimit: conf.particles.speedLimit,
+               acceleration: randomFloat(-1) * conf.particles.accelerationLimit,
+               accelerationLimit: conf.particles.accelerationLimit,
+               angularVelocity: randomFloat(-1) *
+                conf.particles.angularVelocityLimit,
+               angularVelocityLimit: conf.particles.angularVelocityLimit,
+               color: color,
+               size: size,
+               sprite: sprite,
+             }
+           )
+          )
+          scene2D.addChild(sprite); // add particle view to scene (loose)
+        }
+      }
+
+      /* Update all particle positions */
+      function updateParticles(delta){
+        _.each(particles, (p)=>{
+          p.update(delta);
+        })
+      }
+
+      /* PIXI setup (2D) ******************************************************/
+
+      // 2d Renderer Setup (non WebGL canvas partially supported)
+      var canvas2D = PIXI.autoDetectRenderer(
+        conf.pixi.bufferSize,
+        conf.pixi.bufferSize,
+        {transparent:true}
+      );
+
+      // 2d Scene Graph
+      var scene2D = new PIXI.Container();
+      var graphics = new PIXI.Graphics();
+      scene2D.addChild(graphics);
+
+      var backgroundColor = tinycolor(conf.pixi.backgroundColor);
+
+      // filters
+
+      var blurFilter = new PIXI.filters.BlurFilter();
+      blurFilter.blur = conf.pixi.blurSize;
+
+      var splitFilter = new PIXI.filters.RGBSplitFilter();
+      splitFilter.red = new PIXI.Point(conf.pixi.channelOffset, 0);
+      splitFilter.green = new PIXI.Point(
+        Math.round(Math.cos(PI2/3) * conf.pixi.channelOffset),
+        Math.round(Math.sin(PI2/3) * conf.pixi.channelOffset)
+      );
+      splitFilter.blue = new PIXI.Point(
+        Math.round(Math.cos(PI2/3*2) * conf.pixi.channelOffset),
+        Math.round(Math.sin(PI2/3*2) * conf.pixi.channelOffset)
+      );
+
+      var bloomFilter = new PIXI.filters.BloomFilter();
+      bloomFilter.blur = conf.pixi.bloomSize;
+
+      var colorStepFilter = new PIXI.filters.ColorStepFilter();
+      colorStepFilter.step = conf.pixi.colorSteps;
+
+      var filters = [];
+      _.times(conf.pixi.blurPasses, ()=>{
+        filters.push(blurFilter)
+      });
+      filters.push(splitFilter);
+      filters.push(bloomFilter);
+      filters.push(colorStepFilter);
+
+      /* Somehow it's not possible to add filters directly to the PIXI.Container
+        The Engine throws an error when trying to modify the filters array.
+        This is why the reference to an array is set as filters. */
+      scene2D.filters = filters;
+
+      /* Update particle position by scaling simulation vals to texture size */
+      function updateParticleSprite(){
+        _.each(particles, (p)=>{
+          p.sprite.x = p.x * conf.pixi.bufferSize - p.size/2;
+          p.sprite.y = p.y * conf.pixi.bufferSize - p.size/2;
+        })
+      }
+
+      /* Update PIXI scene graph and background color value */
+      function update2D(){
+        // draw background
+        backgroundColor.spin(1)
+        // update particle systems sprite representation
+        updateParticleSprite();
+      }
+
+      /* Render PIXI scene graph */
+      function render2D(){
+        // render background
+        graphics.clear(); // faster with clear, don't know why, prop opacity
+        graphics.beginFill(parseInt(backgroundColor.toHex(), 16));
+        graphics.drawRect(0, 0, conf.pixi.bufferSize, conf.pixi.bufferSize);
+        graphics.endFill();
+        // render to canvas
+        canvas2D.render(scene2D);
+      }
+
+      /* Three.js setup (3D) **************************************************/
+
+      // Three.js 3D Renderer
+      var canvas3D = new THREE.WebGLRenderer(conf.three.renderer);
+      canvas3D.setSize(WIDTH, HEIGHT);
+      canvas3D.setClearColor(conf.three.fog.hex, 1);
+      document.body.appendChild(canvas3D.domElement);
+
+      // 3D Scene Graph
+      var scene3D = new THREE.Scene();
+      scene3D.fog = new THREE.Fog(
+        conf.three.fog.hex,
+        conf.three.fog.near,
+        conf.three.fog.far
+      );
+
+      // Camera Setup
+      var camera = new THREE.PerspectiveCamera(
+        conf.three.camera.fov,
+        ASPECT_RATIO,
+        conf.three.camera.near,
+        conf.three.camera.far
+      );
+
+      camera.rotation.set(
+        conf.three.camera.rotationX * DEG2RAD,
+        conf.three.camera.rotationY * DEG2RAD,
+        conf.three.camera.rotationZ * DEG2RAD
+      );
+
+      camera.position.set(
+        conf.three.camera.x,
+        conf.three.camera.y,
+        conf.three.camera.z
+      );
+
+      camera.updateProjectionMatrix();
+      scene3D.add(camera);
+
+
+      /* Projection Mapping ***************************************************/
+
+      var loader = new THREE.JSONLoader();
+      var texture = new THREE.Texture(canvas2D.view); // referencing pixi tex
+      var material = new THREE.MeshBasicMaterial(
+        {
+          map: texture,
+          side:THREE.FrontSide
+        }
+      );
+
+      // load the projection base mesh
+      loader.load(
+      	conf.projection.mesh,
+      	(geometry)=>{
+          var object = new THREE.Mesh(geometry, material);
+          scene3D.add(object);
+          loadComplete();
+      	}
+      );
+
+      /* Update Three.js Scene Graph */
+      function update3D(){
+        if(!scene3D.children[0]) return;
+        texture.needsUpdate = true;
+      }
+
+      /* Render Three.js Scene Graph */
+      function render3D(){
+        canvas3D.render(scene3D, camera);
+      }
+
+      /* Main Loop ************************************************************/
+
+      var last = Date.now();
+      function update(){
+        requestAnimationFrame(update);
+        // calc frame time delta
+        var now = Date.now();
+        var delta = now-last;
+        last = now;
+        // update & render sequence
+        updateParticles(delta);
+        update2D();
+        render2D();
+        update3D();
+        render3D();
+      }
+
+      /* Start the simulation */
+      function init(){
+        update(); // kick it
+      }
+    </script>
+  </body>
+</html>

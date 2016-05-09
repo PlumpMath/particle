@@ -1,0 +1,14 @@
+{
+  "window":{
+    "width": 1024,
+    "height": 768,
+    "frame": false,
+    "kiosk": true,
+    "resizable": true,
+    "backgroundColor": "#000",
+    "webPreferences":{
+      "backgroundThrottling": true
+    }
+  },
+  "devTools": true
+}

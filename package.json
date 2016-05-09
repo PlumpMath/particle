@@ -1,0 +1,28 @@
+{
+  "name": "dgrt-particle",
+  "version": "0.0.3",
+  "description": "A simple projection mapped particle simulation",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dgrt/particle.git"
+  },
+  "keywords": [
+    "Electron",
+    "dgrt",
+    "particle",
+    "simulation"
+  ],
+  "author": "dgrt",
+  "license": "CC0-1.0",
+  "bugs": {
+    "url": "https://github.com/dgrt/particle/issues"
+  },
+  "homepage": "https://github.com/dgrt/particle",
+  "devDependencies": {
+    "electron-prebuilt": "^0.37.0"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "backgroundColor": "#FF0000",
+  "blurSize": 4,
+  "blurPasses": 3,
+  "channelOffset": 6,
+  "bloomSize": 4,
+  "colorSteps": 6,
+  "bufferSize": 1024
+}

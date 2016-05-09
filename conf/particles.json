@@ -1,0 +1,11 @@
+{
+  "map": "mesh/room_uv.png",
+  "count": 384,
+  "sizeMin": 16,
+  "sizeMax": 96,
+  "alphaMin": 0.3,
+  "alphaMax": 0.9,
+  "speedLimit": 1e-4,
+  "accelerationLimit": 1e-5,
+  "angularVelocityLimit": 1e-3
+}
